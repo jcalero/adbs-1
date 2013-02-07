@@ -60,7 +60,7 @@ public class ExternalSort extends UnaryOperator {
      * @param sm the storage manager.
      * @param slots the indexes of the sort keys.
      * @param buffers the number of buffers (i.e., run files) to be
-     * used for the sort.
+     * used for the sort. (maximum number of pages to use in sorting at the time)
      * @throws EngineException thrown whenever the sort operator
      * cannot be properly initialized.
      */
@@ -126,6 +126,21 @@ public class ExternalSort extends UnaryOperator {
             // YOUR CODE GOES HERE
             //
             ////////////////////////////////////////////
+        	
+        	/*
+            // store the left input (FROM NESTEDLOOPJOIN)
+            Relation leftRel = getInputOperator(LEFT).getOutputRelation();
+            RelationIOManager leftMan =
+                new RelationIOManager(getStorageManager(), leftRel, leftFile);
+            boolean done = false;
+            while (! done) {
+                Tuple tuple = getInputOperator(LEFT).getNext();
+                if (tuple != null) {
+                    done = (tuple instanceof EndOfStreamTuple);
+                    if (! done) leftMan.insertTuple(tuple);
+                }
+            }
+            */
             
             ////////////////////////////////////////////
             //
