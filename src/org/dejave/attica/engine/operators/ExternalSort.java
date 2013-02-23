@@ -10,6 +10,7 @@
  */
 package org.dejave.attica.engine.operators;
 
+import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ArrayList;
@@ -17,6 +18,7 @@ import java.util.ArrayList;
 import org.dejave.attica.model.Relation;
 import org.dejave.attica.storage.Tuple;
 
+import org.dejave.attica.storage.Page;
 import org.dejave.attica.storage.RelationIOManager;
 import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
@@ -35,6 +37,9 @@ public class ExternalSort extends UnaryOperator {
     
     /** The name of the temporary file for the output. */
     private String outputFile;
+    
+    /** The name of the temporary file for the input */
+    private String inputFile;
 	
     /** The manager that undertakes output relation I/O. */
     private RelationIOManager outputMan;
@@ -101,6 +106,9 @@ public class ExternalSort extends UnaryOperator {
         // know of is the output file
         //
         ////////////////////////////////////////////
+    	inputFile = FileUtil.createTempFileName();
+    	sm.createFile(inputFile);
+    	
         outputFile = FileUtil.createTempFileName();
     } // initTempFiles()
 
@@ -127,20 +135,60 @@ public class ExternalSort extends UnaryOperator {
             //
             ////////////////////////////////////////////
         	
-        	/*
-            // store the left input (FROM NESTEDLOOPJOIN)
-            Relation leftRel = getInputOperator(LEFT).getOutputRelation();
-            RelationIOManager leftMan =
-                new RelationIOManager(getStorageManager(), leftRel, leftFile);
+        	///////
+            // Read in the input file in batches of B pages
+        	///////
+            /*Relation rel = getInputOperator().getOutputRelation();
+            RelationIOManager inputIOMan =
+                new RelationIOManager(sm, rel, inputFile);
             boolean done = false;
             while (! done) {
-                Tuple tuple = getInputOperator(LEFT).getNext();
+                Tuple tuple = getInputOperator().getNext();
+                System.out.println(FileUtil.getNumberOfPages(inputFile));
                 if (tuple != null) {
                     done = (tuple instanceof EndOfStreamTuple);
-                    if (! done) leftMan.insertTuple(tuple);
+                    if (! done) inputIOMan.insertTuple(tuple);
                 }
+            }*/
+        	long time = System.currentTimeMillis();
+            Relation rel = getInputOperator().getOutputRelation();
+            RelationIOManager inputIOMan = 
+            	new RelationIOManager(sm, rel, inputFile);
+            boolean done = false;
+            while (!done) {
+            	Tuple tuple = getInputOperator().getNext();
+            	
+            	if (tuple != null) {
+            		done = (tuple instanceof EndOfStreamTuple);
+            		if (!done) {
+            			inputIOMan.insertTuple(tuple);
+            			if (FileUtil.getNumberOfPages(inputFile) == buffers) {
+            				sortAndStoreBufferedPages(inputIOMan);
+            			}
+            		}
+            	}
             }
-            */
+            System.out.println((float)(System.currentTimeMillis() - time));
+            System.out.println(FileUtil.getNumberOfPages(inputFile));
+            
+            ////// 
+            // The input is now in inputIOMan and can be
+            // read page by page, tuple by tuple.
+            /////
+            
+            //////
+            // We should now take the input, fetch the B number
+            // of pages from it, sort them, and store them in a
+            // temporary file.
+            /////
+//            ArrayList<Page> bufferedPages = new ArrayList<Page>();
+//            for (Page p : inputIOMan.pages()) {
+//            	bufferedPages.add(p);
+//            	if (bufferedPages.size() == buffers) {
+////            		sortAndStoreBufferedPages(bufferedPages);
+//            	}
+//            }
+            
             
             ////////////////////////////////////////////
             //
@@ -148,15 +196,31 @@ public class ExternalSort extends UnaryOperator {
             //
             ////////////////////////////////////////////
             
+            sm.createFile(outputFile);       
             outputMan = new RelationIOManager(sm, getOutputRelation(),
                                               outputFile);
             outputTuples = outputMan.tuples().iterator();
+            
+            
         }
-        catch (Exception sme) {
-            throw new EngineException("Could not store and sort"
-                                      + "intermediate files.", sme);
+        catch (StorageManagerException sme) {
+            throw new EngineException("Could not store intermediate relations"
+                                      + "to files.", sme);
+        }
+        catch (IOException ioe) {
+        	throw new EngineException("Could not create page/tuple iterators.", ioe);
         }
     } // setup()
+    
+    
+    private void sortAndStoreBufferedPages(RelationIOManager inputIOManager) throws IOException, StorageManagerException {
+    	// Pretend sort...
+    	// Sorting... la la lala... DONE Sorted!
+    	
+    	for (Page p : inputIOManager.pages()) {
+    		
+    	}
+    }
 
     
     /**
@@ -174,6 +238,8 @@ public class ExternalSort extends UnaryOperator {
             //
             ////////////////////////////////////////////
             
+        	sm.deleteFile(inputFile);
+        	
             ////////////////////////////////////////////
             //
             // right now, only the output file is 
