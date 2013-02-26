@@ -142,11 +142,7 @@ public class ExternalSort extends UnaryOperator {
             ////////////////////////////////////////////
         	long time = System.currentTimeMillis();
         	///////
-            // Read in the input file ?????? TODO
-        	// Is this really supposed to read in the entire
-        	// input? What if it's too big for main memory?
-        	// Shouldn't I be reading in B pages at the time 
-        	// at this pass instead of doing it in the next pass?
+            // Read in the input to an IO Manager (to a file if needed)
         	///////
             Relation rel = getInputOperator().getOutputRelation();
             RelationIOManager inputIOMan =
@@ -159,10 +155,6 @@ public class ExternalSort extends UnaryOperator {
                     if (! done) inputIOMan.insertTuple(tuple);
                 }
             }
-
-            System.out.println(">>Sorting took: " +
-            		(float)(System.currentTimeMillis() - time)*0.001 +
-            		"s");
             System.out.println(">>Number of pages: " +
             		FileUtil.getNumberOfPages(inputFile));
             ////// 
@@ -180,15 +172,28 @@ public class ExternalSort extends UnaryOperator {
             ArrayList<Page> bufferedPages = new ArrayList<Page>();
             for (Page p : inputIOMan.pages()) {
             	bufferedPages.add(p);
-            	System.out.println(bufferedPages.size());
-            	if (bufferedPages.size() == 3) {
+            	if (bufferedPages.size() == buffers) {
             		initTempFileRun(bufferedPages);
+            		bufferedPages.clear();
             	}
+            }
+            //////
+            // Make sure the final set of pages smaller than 
+            // the buffer size also are added to a file.
+            //////
+            if (bufferedPages.size() > 0) {
+            	initTempFileRun(bufferedPages);
+            	bufferedPages.clear();
             }
             
             System.out.println("Number of temporary files: " +
             		tempFiles.size());
-            
+            System.out.println(">> Ceiling(" +
+            		FileUtil.getNumberOfPages(inputFile) +
+            		"/" +
+            		"3)"+
+            		" = " +
+            		tempFiles.size());
             
             ////////////////////////////////////////////
             //
@@ -200,16 +205,18 @@ public class ExternalSort extends UnaryOperator {
             outputMan = new RelationIOManager(sm, getOutputRelation(),
                                               outputFile);
             
-            // TODO: Remove this arbitrary "merge" and add
-            // a proper merge.
-            for (RelationIOManager man : tempIOManagers) {
-            	for (Page p : man.pages()) {
-            		for (Tuple t : p) {
-            			outputMan.insertTuple(t);
-            		}
-            	}
-            }
             
+            /////
+            // We now have a set of temporary files (X/B to be
+            // precise, where X is the number of pages in the
+            // input), which are all sorted. We also have defined
+            // the output IO manager and can now start merging.
+            /////
+            initMergeRun();
+            
+            System.out.println(">>Sorting took: " +
+            		(float)(System.currentTimeMillis() - time)*0.001 +
+            		"s");
 
             outputTuples = outputMan.tuples().iterator();
             
@@ -254,7 +261,24 @@ public class ExternalSort extends UnaryOperator {
     	}
     }
     
-	public void quickSort(Page p) {
+    private void initMergeRun() throws IOException, StorageManagerException {
+    	/////////////////////////////////////////
+    	// Temporary merge placeholder.
+    	// Simply copies the input to the output
+    	// Remove when proper merge is implemented
+        for (RelationIOManager man : tempIOManagers) {
+        	for (Page p : man.pages()) {
+        		for (Tuple t : p) {
+        			outputMan.insertTuple(t);
+        		}
+        	}
+        }
+        /////////////////////////////////////////
+        
+        
+    }
+    
+	private void quickSort(Page p) {
 		quickAux(p, 0, p.getNumberOfTuples() - 1);
 	}
 
