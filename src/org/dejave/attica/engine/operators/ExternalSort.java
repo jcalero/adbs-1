@@ -11,19 +11,17 @@
 package org.dejave.attica.engine.operators;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.ArrayList;
 
 import org.dejave.attica.model.Relation;
-import org.dejave.attica.storage.Tuple;
-
+import org.dejave.attica.storage.FileUtil;
 import org.dejave.attica.storage.Page;
 import org.dejave.attica.storage.RelationIOManager;
 import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
-
-import org.dejave.attica.storage.FileUtil;
+import org.dejave.attica.storage.Tuple;
 
 /**
  * ExternalSort: Your implementation of sorting.
@@ -155,7 +153,7 @@ public class ExternalSort extends UnaryOperator {
                     if (! done) inputIOMan.insertTuple(tuple);
                 }
             }
-            System.out.println(">>Number of pages: " +
+            System.out.println(">> Number of pages: " +
             		FileUtil.getNumberOfPages(inputFile));
             ////// 
             // The input is now in inputIOMan and can be
@@ -186,13 +184,13 @@ public class ExternalSort extends UnaryOperator {
             	bufferedPages.clear();
             }
             
-            System.out.println("Number of temporary files: " +
+            System.out.println(">> Number of temporary files: " +
             		tempFiles.size());
             System.out.println(">> Ceiling(" +
             		FileUtil.getNumberOfPages(inputFile) +
             		"/" +
-            		"3)"+
-            		" = " +
+            		buffers +
+            		") = " +
             		tempFiles.size());
             
             ////////////////////////////////////////////
@@ -214,7 +212,7 @@ public class ExternalSort extends UnaryOperator {
             /////
             initMergeRun();
             
-            System.out.println(">>Sorting took: " +
+            System.out.println(">> Sorting took: " +
             		(float)(System.currentTimeMillis() - time)*0.001 +
             		"s");
 
@@ -261,7 +259,7 @@ public class ExternalSort extends UnaryOperator {
     	}
     }
     
-    private void initMergeRun() throws IOException, StorageManagerException {
+    private void initMergeRun() throws IOException, StorageManagerException, EngineException {
     	/////////////////////////////////////////
     	// Temporary merge placeholder.
     	// Simply copies the input to the output
@@ -273,9 +271,57 @@ public class ExternalSort extends UnaryOperator {
         		}
         	}
         }
+        tempIOManagers.clear();
         /////////////////////////////////////////
         
-        
+        /////
+        // 
+        /////
+        while (tempIOManagers.size() > 0) {
+	        if (tempIOManagers.size() < buffers - 1) {
+	        	mergeRun(tempIOManagers.size());
+	        } else {
+	        	mergeRun(buffers - 1);
+	        }
+        }
+    }
+    
+    @SuppressWarnings("unchecked")
+	private void mergeRun(int count) throws IOException, StorageManagerException, EngineException {
+    	// The current index being compared on each
+    	// of the lists being merged
+    	int[] indices = new int[count];
+    	
+    	Tuple min = null;
+    	boolean done = false;
+    	
+    	// Create temporary file to be used as output
+    	String tempFile = FileUtil.createTempFileName();
+    	sm.createFile(tempFile);
+    	tempFiles.add(tempFile);
+    	RelationIOManager outMan = new RelationIOManager(sm, getOutputRelation(), tempFile);
+    	
+    	
+    	while (!done) {
+    		// Find the minimum value of the next tuples in
+    		// each file being checked.
+	    	for (int i = 0; i < count; i++) {
+	    		RelationIOManager man = tempIOManagers.get(i);
+	    		Tuple newTuple = man.tuples().iterator().next();
+//	    		man.tuples().iterator().
+	    		
+	    		if (min == null) {
+	    			min = newTuple;
+	    		} else if (newTuple.getValue(slots[0])
+	    				.compareTo(min.getValue(slots[0])) < 0) {
+	    			min = newTuple;
+	    		}
+	    	}
+	    	
+	    	// Add the minumum value to the output manager.
+	    	outMan.insertTuple(min);
+	    	min = null;
+    	}
     }
     
 	private void quickSort(Page p) {
