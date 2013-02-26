@@ -40,6 +40,12 @@ public class ExternalSort extends UnaryOperator {
     
     /** The name of the temporary file for the input */
     private String inputFile;
+    
+    /** The temporary files used for the intermediate steps */
+    private ArrayList<String> tempFiles;
+    
+    /** The temporary IO Managers used for the intermediate steps */
+    private ArrayList<RelationIOManager> tempIOManagers;
 	
     /** The manager that undertakes output relation I/O. */
     private RelationIOManager outputMan;
@@ -134,43 +140,31 @@ public class ExternalSort extends UnaryOperator {
             // YOUR CODE GOES HERE
             //
             ////////////////////////////////////////////
-        	
+        	long time = System.currentTimeMillis();
         	///////
-            // Read in the input file in batches of B pages
+            // Read in the input file ?????? TODO
+        	// Is this really supposed to read in the entire
+        	// input? What if it's too big for main memory?
+        	// Shouldn't I be reading in B pages at the time 
+        	// at this pass instead of doing it in the next pass?
         	///////
-            /*Relation rel = getInputOperator().getOutputRelation();
+            Relation rel = getInputOperator().getOutputRelation();
             RelationIOManager inputIOMan =
                 new RelationIOManager(sm, rel, inputFile);
             boolean done = false;
             while (! done) {
                 Tuple tuple = getInputOperator().getNext();
-                System.out.println(FileUtil.getNumberOfPages(inputFile));
                 if (tuple != null) {
                     done = (tuple instanceof EndOfStreamTuple);
                     if (! done) inputIOMan.insertTuple(tuple);
                 }
-            }*/
-        	long time = System.currentTimeMillis();
-            Relation rel = getInputOperator().getOutputRelation();
-            RelationIOManager inputIOMan = 
-            	new RelationIOManager(sm, rel, inputFile);
-            boolean done = false;
-            while (!done) {
-            	Tuple tuple = getInputOperator().getNext();
-            	
-            	if (tuple != null) {
-            		done = (tuple instanceof EndOfStreamTuple);
-            		if (!done) {
-            			inputIOMan.insertTuple(tuple);
-            			if (FileUtil.getNumberOfPages(inputFile) == buffers) {
-            				sortAndStoreBufferedPages(inputIOMan);
-            			}
-            		}
-            	}
             }
-            System.out.println((float)(System.currentTimeMillis() - time));
-            System.out.println(FileUtil.getNumberOfPages(inputFile));
-            
+
+            System.out.println(">>Sorting took: " +
+            		(float)(System.currentTimeMillis() - time)*0.001 +
+            		"s");
+            System.out.println(">>Number of pages: " +
+            		FileUtil.getNumberOfPages(inputFile));
             ////// 
             // The input is now in inputIOMan and can be
             // read page by page, tuple by tuple.
@@ -181,13 +175,19 @@ public class ExternalSort extends UnaryOperator {
             // of pages from it, sort them, and store them in a
             // temporary file.
             /////
-//            ArrayList<Page> bufferedPages = new ArrayList<Page>();
-//            for (Page p : inputIOMan.pages()) {
-//            	bufferedPages.add(p);
-//            	if (bufferedPages.size() == buffers) {
-////            		sortAndStoreBufferedPages(bufferedPages);
-//            	}
-//            }
+            tempFiles = new ArrayList<String>();
+            tempIOManagers = new ArrayList<RelationIOManager>();
+            ArrayList<Page> bufferedPages = new ArrayList<Page>();
+            for (Page p : inputIOMan.pages()) {
+            	bufferedPages.add(p);
+            	System.out.println(bufferedPages.size());
+            	if (bufferedPages.size() == 3) {
+            		initTempFileRun(bufferedPages);
+            	}
+            }
+            
+            System.out.println("Number of temporary files: " +
+            		tempFiles.size());
             
             
             ////////////////////////////////////////////
@@ -199,6 +199,18 @@ public class ExternalSort extends UnaryOperator {
             sm.createFile(outputFile);       
             outputMan = new RelationIOManager(sm, getOutputRelation(),
                                               outputFile);
+            
+            // TODO: Remove this arbitrary "merge" and add
+            // a proper merge.
+            for (RelationIOManager man : tempIOManagers) {
+            	for (Page p : man.pages()) {
+            		for (Tuple t : p) {
+            			outputMan.insertTuple(t);
+            		}
+            	}
+            }
+            
+
             outputTuples = outputMan.tuples().iterator();
             
             
@@ -213,14 +225,77 @@ public class ExternalSort extends UnaryOperator {
     } // setup()
     
     
-    private void sortAndStoreBufferedPages(RelationIOManager inputIOManager) throws IOException, StorageManagerException {
-    	// Pretend sort...
-    	// Sorting... la la lala... DONE Sorted!
+    private void initTempFileRun(ArrayList<Page> pages) throws IOException, StorageManagerException, EngineException {
+    	// Sort the pages
+    	sortPages(pages);
     	
-    	for (Page p : inputIOManager.pages()) {
-    		
+    	// Create the temporary file to output to
+    	String tempFile = FileUtil.createTempFileName();
+    	sm.createFile(tempFile);
+    	tempFiles.add(tempFile);
+    	
+    	// Create the IO Manager for the temporary file
+    	RelationIOManager tempRel = new RelationIOManager(sm, getOutputRelation(), tempFile);
+    	tempIOManagers.add(tempRel);
+    	
+    	// Insert the tuples from the sorted pages into
+    	// the IO manager so that it writes the output
+    	// file
+    	for (Page p : pages) {
+    		for (Tuple t : p) {
+        		tempRel.insertTuple(t);
+    		}
     	}
     }
+    
+    private void sortPages(ArrayList<Page> pages) {
+    	for (Page p : pages) {
+    		quickSort(p);
+    	}
+    }
+    
+	public void quickSort(Page p) {
+		quickAux(p, 0, p.getNumberOfTuples() - 1);
+	}
+
+	@SuppressWarnings("unchecked")
+	private void quickAux(Page p, int start, int end) {
+		if (start < end) {
+			Tuple pivot = p.retrieveTuple(end);
+			int i = start;
+			int j = end;
+			
+			while (i != j) {
+				int slotIndex = findSlotsIndex(p.retrieveTuple(i), pivot, 0);
+				if (p.retrieveTuple(i).getValue(slots[slotIndex])
+						.compareTo(pivot.getValue(slots[slotIndex])) < 0) {
+					i = i + 1;
+				} else {
+					p.setTuple(j, p.retrieveTuple(i));
+					p.setTuple(i, p.retrieveTuple(j - 1));
+					j = j - 1;
+				}
+			}
+			p.setTuple(j, pivot);
+			quickAux(p, start, j - 1);
+			quickAux(p, j + 1, end);
+		}
+	}
+
+	@SuppressWarnings({ "unchecked" })
+	private int findSlotsIndex(Tuple tuple, Tuple pivotTuple,
+			int prevIndex) {
+		if (tuple.getValue(slots[prevIndex]).compareTo(
+				pivotTuple.getValue(slots[prevIndex])) == 0) {
+			if (prevIndex + 1 == slots.length) {
+				return prevIndex;
+			} else {
+				return findSlotsIndex(tuple, pivotTuple, ++prevIndex);
+			}
+		} else {
+			return prevIndex;
+		}
+	}
 
     
     /**
@@ -239,6 +314,10 @@ public class ExternalSort extends UnaryOperator {
             ////////////////////////////////////////////
             
         	sm.deleteFile(inputFile);
+        	
+        	for (String file : tempFiles) {
+        		sm.deleteFile(file);
+        	}
         	
             ////////////////////////////////////////////
             //
