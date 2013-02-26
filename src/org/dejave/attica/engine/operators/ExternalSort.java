@@ -60,6 +60,8 @@ public class ExternalSort extends UnaryOperator {
 
     /** Reusable tuple list for returns. */
     private List<Tuple> returnList;
+    
+    private int mergeCounter;
 
     
     /**
@@ -260,39 +262,58 @@ public class ExternalSort extends UnaryOperator {
     }
     
     private void initMergeRun() throws IOException, StorageManagerException, EngineException {
+    	
     	/////////////////////////////////////////
     	// Temporary merge placeholder.
     	// Simply copies the input to the output
     	// Remove when proper merge is implemented
-        for (RelationIOManager man : tempIOManagers) {
-        	for (Page p : man.pages()) {
-        		for (Tuple t : p) {
-        			outputMan.insertTuple(t);
-        		}
-        	}
-        }
-        tempIOManagers.clear();
+//        for (RelationIOManager man : tempIOManagers) {
+//        	for (Page p : man.pages()) {
+//        		for (Tuple t : p) {
+//        			outputMan.insertTuple(t);
+//        		}
+//        	}
+//        }
+//        tempIOManagers.clear();
         /////////////////////////////////////////
         
         /////
         // 
         /////
-        while (tempIOManagers.size() > 0) {
+    	RelationIOManager tempRel = null;
+        while (tempIOManagers.size() > mergeCounter) {
 	        if (tempIOManagers.size() < buffers - 1) {
-	        	mergeRun(tempIOManagers.size());
+	        	tempRel = mergeRun(tempIOManagers.size());
 	        } else {
-	        	mergeRun(buffers - 1);
+	        	tempRel = mergeRun(buffers - 1);
+	        }
+        }
+        if (tempRel != null) {
+	        for (Tuple t : tempRel.tuples()) {
+	        	outputMan.insertTuple(t);
 	        }
         }
     }
     
     @SuppressWarnings("unchecked")
-	private void mergeRun(int count) throws IOException, StorageManagerException, EngineException {
+	private RelationIOManager mergeRun(int fileCount) throws IOException, StorageManagerException, EngineException {
     	// The current index being compared on each
     	// of the lists being merged
-    	int[] indices = new int[count];
+    	ArrayList<Iterator<Tuple>> iterators = new ArrayList<Iterator<Tuple>>();
+    	ArrayList<Tuple> cachedTuples = new ArrayList<Tuple>();
+    	int pageCount = 0;
     	
-    	Tuple min = null;
+    	for (int i = 0; i < fileCount; i++) {
+    		for( Page p : tempIOManagers.get(i).pages() ) {
+	    		Iterator<Tuple> iter = p.iterator();
+	    		iterators.add(iter);
+	    		cachedTuples.add(iter.next());
+	    		pageCount ++;
+    		}
+    	}
+    	
+    	Tuple minTuple = null;
+    	int minIndex = -1;
     	boolean done = false;
     	
     	// Create temporary file to be used as output
@@ -301,27 +322,42 @@ public class ExternalSort extends UnaryOperator {
     	tempFiles.add(tempFile);
     	RelationIOManager outMan = new RelationIOManager(sm, getOutputRelation(), tempFile);
     	
-    	
     	while (!done) {
     		// Find the minimum value of the next tuples in
     		// each file being checked.
-	    	for (int i = 0; i < count; i++) {
-	    		RelationIOManager man = tempIOManagers.get(i);
-	    		Tuple newTuple = man.tuples().iterator().next();
-//	    		man.tuples().iterator().
-	    		
-	    		if (min == null) {
-	    			min = newTuple;
-	    		} else if (newTuple.getValue(slots[0])
-	    				.compareTo(min.getValue(slots[0])) < 0) {
-	    			min = newTuple;
+    		int endCount = 0;
+	    	for (int i = 0; i < pageCount; i++) {
+	    		if (iterators.get(i).hasNext()) {
+	    			Tuple currentTuple = cachedTuples.get(i);
+		    		if (minTuple == null) {
+		    			minTuple = currentTuple;
+		    			minIndex = i;
+		    		} else {
+		    			int slotsIndex = findSlotsIndex(currentTuple, minTuple, 0);		    			
+			    		if (currentTuple.getValue(slots[slotsIndex])
+			    				.compareTo(minTuple.getValue(slots[slotsIndex])) < 0) {
+			    			minTuple = currentTuple;
+			    			minIndex = i;
+			    		}
+		    		}
+	    		} else {
+	    			endCount++;
 	    		}
 	    	}
 	    	
-	    	// Add the minumum value to the output manager.
-	    	outMan.insertTuple(min);
-	    	min = null;
+	    	done = endCount == pageCount;
+	    	
+	    	if (!done) {
+		    	// Add the minumum value to the output manager.
+		    	outMan.insertTuple(minTuple);
+		    	cachedTuples.set( minIndex, iterators.get( minIndex ).next() );
+		    	minTuple = null;
+	    	}
     	}
+    	
+    	mergeCounter += fileCount;
+    	
+    	return outMan;
     }
     
 	private void quickSort(Page p) {
@@ -353,14 +389,14 @@ public class ExternalSort extends UnaryOperator {
 	}
 
 	@SuppressWarnings({ "unchecked" })
-	private int findSlotsIndex(Tuple tuple, Tuple pivotTuple,
+	private int findSlotsIndex(Tuple tuple, Tuple otherTuple,
 			int prevIndex) {
 		if (tuple.getValue(slots[prevIndex]).compareTo(
-				pivotTuple.getValue(slots[prevIndex])) == 0) {
+				otherTuple.getValue(slots[prevIndex])) == 0) {
 			if (prevIndex + 1 == slots.length) {
 				return prevIndex;
 			} else {
-				return findSlotsIndex(tuple, pivotTuple, ++prevIndex);
+				return findSlotsIndex(tuple, otherTuple, ++prevIndex);
 			}
 		} else {
 			return prevIndex;
