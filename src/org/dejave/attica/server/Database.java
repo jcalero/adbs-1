@@ -10,37 +10,28 @@
  */
 package org.dejave.attica.server;
 
-import java.io.Reader;
-import java.io.InputStreamReader;
-import java.io.FileInputStream;
 import java.io.ByteArrayInputStream;
-
-import java.util.Properties;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.util.List;
-
-import org.dejave.util.Args;
+import java.util.Properties;
 
 import org.dejave.attica.engine.algebra.AlgebraicOperator;
 import org.dejave.attica.engine.operators.EngineException;
-import org.dejave.attica.engine.operators.EndOfStreamTuple;
-import org.dejave.attica.engine.operators.Operator;
 import org.dejave.attica.engine.operators.MessageSink;
+import org.dejave.attica.engine.operators.Operator;
 import org.dejave.attica.engine.operators.Sink;
-
 import org.dejave.attica.engine.optimiser.PlanBuilder;
-
-import org.dejave.attica.model.TableAttribute;
 import org.dejave.attica.model.Table;
-
 import org.dejave.attica.sql.parser.SQLParser;
-
 import org.dejave.attica.storage.BufferManager;
 import org.dejave.attica.storage.Catalog;
+import org.dejave.attica.storage.FileUtil;
 import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
 import org.dejave.attica.storage.Tuple;
-
-import org.dejave.attica.storage.FileUtil;
+import org.dejave.util.Args;
 
 
 /**
@@ -304,7 +295,6 @@ public class Database {
                 
                 String input = sb.toString();
                 done = input.trim().equals("exit");
-                long timer = System.currentTimeMillis();
                 if (! done) {
                     Sink sink = db.runStatement(input);
                     
@@ -312,7 +302,6 @@ public class Database {
                         System.out.println(tuple.toStringFormatted());
 
                     long curTime = System.currentTimeMillis();
-                    System.out.println(">>> Time to run query: " + (curTime - timer)*0.001 + "s");
                     System.out.print(PROMPT);
                 }
             }

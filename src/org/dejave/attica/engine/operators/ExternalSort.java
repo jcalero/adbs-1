@@ -61,8 +61,6 @@ public class ExternalSort extends UnaryOperator {
 
     /** Reusable tuple list for returns. */
     private List<Tuple> returnList;
-    
-    private int mergeCounter;
 
     
     /**
@@ -141,9 +139,9 @@ public class ExternalSort extends UnaryOperator {
             // YOUR CODE GOES HERE
             //
             ////////////////////////////////////////////
-        	long time = System.currentTimeMillis();
+        	
         	///////
-            // Read in the input to an IO Manager (to a file if needed)
+            // Read in the input to an IO Manager (and output to file if needed)
         	///////
             Relation rel = getInputOperator().getOutputRelation();
             RelationIOManager inputIOMan =
@@ -156,22 +154,49 @@ public class ExternalSort extends UnaryOperator {
                     if (! done) inputIOMan.insertTuple(tuple);
                 }
             }
-            System.out.println(">> Number of pages: " +
-            		FileUtil.getNumberOfPages(inputFile));
             ////// 
             // The input is now in inputIOMan and can be
-            // read page by page, tuple by tuple.
+            // read page by page or tuple by tuple.
             /////
             
             //////
             // We should now take the input, fetch the B number
             // of pages from it, sort them, and store them in a
-            // temporary file.
+            // temporary file. Repeat until input is exhausted.
             /////
+            
+            // A record of the temporary files, stored as reference
+            // for later cleaning up.
             tempFiles = new ArrayList<String>();
+            
+            // A record of the temporary IO Managers, one for each temporary file.
+            // This record is our main record when doing the merging.
+            // 
+            // This is an ArrayDeque to allow pushing and pulling from both the
+            // front and end of the list. Reasons explained in the merge function.
             tempIOManagers = new ArrayDeque<RelationIOManager>();
+            
+            // A record of tuples currently being read from the input.
+            // These tuples are the ones passed to the sorting and output
+            // function once B pages have been read.
             ArrayList<Tuple> bufferedTuples = new ArrayList<Tuple>();
+            
+            // Counter for how many pages have been read so far.
             int pageCount = 0;
+            
+            ///////
+            // Read the pages from the input, add the tuples to 
+            // bufferedTuples, once a page has been read, increment
+            // pagecounter. If pagecounter is the same as buffers,
+            // run the sorting & output function.
+            // Clear the bufferedTuples and reset, repeat for the
+            // remaining pages in the input.
+            //
+            // Sorting is done as in-place quick-sort with the 
+            // last element as pivot. This simplifies the 
+            // implementation although it might cause
+            // O(n^2) performance on reverse sorted data. 
+            ///////
             for (Page p : inputIOMan.pages()) {
             	for (Tuple t : p) {
             		bufferedTuples.add(t);
@@ -183,6 +208,7 @@ public class ExternalSort extends UnaryOperator {
             		pageCount = 0;
             	}
             }
+            
             //////
             // Make sure the final set of pages smaller than 
             // the buffer size also are added to a file.
@@ -192,15 +218,6 @@ public class ExternalSort extends UnaryOperator {
             	bufferedTuples.clear();
             	pageCount = 0;
             }
-            
-            System.out.println(">> Number of temporary files: " +
-            		tempFiles.size());
-            System.out.println(">> Ceiling(" +
-            		FileUtil.getNumberOfPages(inputFile) +
-            		"/" +
-            		buffers +
-            		") = " +
-            		tempFiles.size());
             
             ////////////////////////////////////////////
             //
@@ -218,12 +235,14 @@ public class ExternalSort extends UnaryOperator {
             // precise, where X is the number of pages in the
             // input), which are all sorted. We also have defined
             // the output IO manager and can now start merging.
+            // 
+            // Our sorted files reside in the class member
+            // tempIOManager and the merge function will output
+            // its result to the class member outputMan, hence
+            // no arguments or return types are needed for the
+            // merge function.
             /////
             initMergeRun();
-            
-            System.out.println(">> Sorting took: " +
-            		(float)(System.currentTimeMillis() - time)*0.001 +
-            		"s");
 
             outputTuples = outputMan.tuples().iterator();
             
@@ -238,7 +257,15 @@ public class ExternalSort extends UnaryOperator {
         }
     } // setup()
     
-    
+    /**
+     * The sorting and output run of the temporary chunks given by B pages from input.
+     * Uses in-place quicksort with the final element as pivot for sorting.
+     * 
+     * @param tuples - The data to sort.
+     * @throws IOException
+     * @throws StorageManagerException
+     * @throws EngineException
+     */
     private void initTempFileRun(ArrayList<Tuple> tuples) throws IOException, StorageManagerException, EngineException {
     	// Sort the tuples
     	quickSort(tuples);
@@ -259,60 +286,79 @@ public class ExternalSort extends UnaryOperator {
     	}
     }
     
-//    private void sortPages(ArrayList<Page> pages) {
-//    	for (Page p : pages) {
-//    		quickSort(p);
-//    	}
-//    }
-    
+    /**
+     * The merge run "runner" that keeps track of how many merge runs to call and
+     * what to call them on.
+     * 
+     * @throws IOException
+     * @throws StorageManagerException
+     * @throws EngineException
+     */
     private void initMergeRun() throws IOException, StorageManagerException, EngineException {
-    	
-    	/////////////////////////////////////////
-    	// Temporary merge placeholder.
-    	// Simply copies the input to the output
-    	// Remove when proper merge is implemented
-//        for (RelationIOManager man : tempIOManagers) {
-//        	for (Tuple t : man.tuples()) {
-//    			outputMan.insertTuple(t);
-//        	}
-//        }
-//        tempIOManagers.clear();
-        /////////////////////////////////////////
-        
-        /////
-        // 
-        /////
+        // This is the relation that will contain the intermediate
+    	// merged output and finally the entire merged output once all
+    	// merge runs have finished.
     	RelationIOManager tempRel = null;
+    	
+    	// Loop over the files (RelationIOManagers) in tempIOManagers.
+    	// Or more precisely, as long as there is more than one temporary
+    	// file do a merge run.
+    	// 
+    	// tempIOManagers is updated at each merge run to contain only the
+    	// current run of files. In other words, discards the files already
+    	// merged and adds the new merged files.
         while (tempIOManagers.size() > 1) {
 	        if (tempIOManagers.size() < buffers - 1) {
+	        	// Case for when there are less files than buffers to merge,
+	        	// in which case all the remaining files will be merged.
+	        	// In other words, the final merge run.
 	        	tempRel = mergeRun(tempIOManagers.size());
 	        } else {
 	        	tempRel = mergeRun(buffers - 1);
 	        }
 	        
+	        // Add the new merged file from the last run to the
+	        // end of the queue.	     
 	        tempIOManagers.addLast( tempRel );
         }
         
-        System.out.println(">> Number of final merged files: " + tempIOManagers.size());
-        
+        // Once all files have been merged, the lone file remaining
+        // in tempIOManagers will be streamed to the outputManager
+        // for the final output of this operator.
         for (Tuple t : tempIOManagers.getLast().tuples()) {
         	outputMan.insertTuple(t);
         }
     }
     
+    /**
+     * The intermediate merge runs of the temporary files.
+     *  
+     * @param fileCount - The number of files from tempIOManager to merge.
+     * Always grabs the number of files from the top of the queue.
+     * @return
+     * @throws IOException
+     * @throws StorageManagerException
+     * @throws EngineException
+     */
     @SuppressWarnings("unchecked")
 	private RelationIOManager mergeRun(int fileCount) throws IOException, StorageManagerException, EngineException {
     	// The current index being compared on each
     	// of the lists being merged
     	ArrayList<Iterator<Tuple>> iterators = new ArrayList<Iterator<Tuple>>();
+    	
+    	// The tuples fetched for comparison.
     	ArrayList<Tuple> cachedTuples = new ArrayList<Tuple>();
     	
+    	// Fetches the first tuples from each of the files in
+    	// tempIOMananger. Stores the tuple iterators for the files in
+    	// iterators and removes them from the tempIOManager queue.
     	for (int i = 0; i < fileCount; i++) {
     		Iterator<Tuple> iter = tempIOManagers.pollFirst().tuples().iterator();
     		iterators.add(iter);
     		cachedTuples.add(iter.next());
     	}
     	
+    	// Used for merging.
     	Tuple minTuple = null;
     	int minIndex = -1;
     	boolean done = false;
@@ -346,6 +392,7 @@ public class ExternalSort extends UnaryOperator {
 	    		}
 	    	}
 	    	
+	    	// All files have been traversed and the merging is done.
 	    	done = endCount == fileCount;
 	    	
 	    	if (!done) {
@@ -359,15 +406,24 @@ public class ExternalSort extends UnaryOperator {
 	    	}
     	}
     	
-    	mergeCounter += fileCount;
-    	
     	return outMan;
     }
     
+    /**
+     * Quicksort initialiser
+     * @param tuples - The data to sort.
+     */
 	private void quickSort(ArrayList<Tuple> tuples) {
 		quickAux(tuples, 0, tuples.size() - 1);
 	}
-
+	
+	/**
+	 * The main inplace quicksort method.
+	 * 
+	 * @param tuples - The data to sort
+	 * @param start - The start index
+	 * @param end - The end index
+	 */
 	@SuppressWarnings("unchecked")
 	private void quickAux(ArrayList<Tuple> tuples, int start, int end) {
 		if (start < end) {
@@ -392,6 +448,15 @@ public class ExternalSort extends UnaryOperator {
 		}
 	}
 
+	/**
+	 * This method is used for identifying what sort key to sort
+	 * by. 
+	 * 
+	 * @param tuple - The currently read tuple
+	 * @param otherTuple - The tuple to compare to
+	 * @param prevIndex - Recursive index.
+	 * @return - The sort key index.
+	 */
 	@SuppressWarnings({ "unchecked" })
 	private int findSlotsIndex(Tuple tuple, Tuple otherTuple,
 			int prevIndex) {
