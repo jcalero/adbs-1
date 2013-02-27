@@ -169,21 +169,27 @@ public class ExternalSort extends UnaryOperator {
             /////
             tempFiles = new ArrayList<String>();
             tempIOManagers = new ArrayList<RelationIOManager>();
-            ArrayList<Page> bufferedPages = new ArrayList<Page>();
+            ArrayList<Tuple> bufferedTuples = new ArrayList<Tuple>();
+            int pageCount = 0;
             for (Page p : inputIOMan.pages()) {
-            	bufferedPages.add(p);
-            	if (bufferedPages.size() == buffers) {
-            		initTempFileRun(bufferedPages);
-            		bufferedPages.clear();
+            	for (Tuple t : p) {
+            		bufferedTuples.add(t);
+            	}
+            	pageCount++;
+            	if (pageCount == buffers) {
+            		initTempFileRun(bufferedTuples);
+            		bufferedTuples.clear();
+            		pageCount = 0;
             	}
             }
             //////
             // Make sure the final set of pages smaller than 
             // the buffer size also are added to a file.
             //////
-            if (bufferedPages.size() > 0) {
-            	initTempFileRun(bufferedPages);
-            	bufferedPages.clear();
+            if (pageCount > 0) {
+            	initTempFileRun(bufferedTuples);
+            	bufferedTuples.clear();
+            	pageCount = 0;
             }
             
             System.out.println(">> Number of temporary files: " +
@@ -232,9 +238,9 @@ public class ExternalSort extends UnaryOperator {
     } // setup()
     
     
-    private void initTempFileRun(ArrayList<Page> pages) throws IOException, StorageManagerException, EngineException {
-    	// Sort the pages
-    	sortPages(pages);
+    private void initTempFileRun(ArrayList<Tuple> tuples) throws IOException, StorageManagerException, EngineException {
+    	// Sort the tuples
+    	quickSort(tuples);
     	
     	// Create the temporary file to output to
     	String tempFile = FileUtil.createTempFileName();
@@ -245,21 +251,18 @@ public class ExternalSort extends UnaryOperator {
     	RelationIOManager tempRel = new RelationIOManager(sm, getOutputRelation(), tempFile);
     	tempIOManagers.add(tempRel);
     	
-    	// Insert the tuples from the sorted pages into
-    	// the IO manager so that it writes the output
+    	// Insert the sorted tuples into the IO manager so that it writes the output
     	// file
-    	for (Page p : pages) {
-    		for (Tuple t : p) {
-        		tempRel.insertTuple(t);
-    		}
+    	for (Tuple t : tuples) {
+        	tempRel.insertTuple(t);
     	}
     }
     
-    private void sortPages(ArrayList<Page> pages) {
-    	for (Page p : pages) {
-    		quickSort(p);
-    	}
-    }
+//    private void sortPages(ArrayList<Page> pages) {
+//    	for (Page p : pages) {
+//    		quickSort(p);
+//    	}
+//    }
     
     private void initMergeRun() throws IOException, StorageManagerException, EngineException {
     	
@@ -360,31 +363,31 @@ public class ExternalSort extends UnaryOperator {
     	return outMan;
     }
     
-	private void quickSort(Page p) {
-		quickAux(p, 0, p.getNumberOfTuples() - 1);
+	private void quickSort(ArrayList<Tuple> tuples) {
+		quickAux(tuples, 0, tuples.size() - 1);
 	}
 
 	@SuppressWarnings("unchecked")
-	private void quickAux(Page p, int start, int end) {
+	private void quickAux(ArrayList<Tuple> tuples, int start, int end) {
 		if (start < end) {
-			Tuple pivot = p.retrieveTuple(end);
+			Tuple pivot = tuples.get(end);
 			int i = start;
 			int j = end;
 			
 			while (i != j) {
-				int slotIndex = findSlotsIndex(p.retrieveTuple(i), pivot, 0);
-				if (p.retrieveTuple(i).getValue(slots[slotIndex])
+				int slotIndex = findSlotsIndex(tuples.get(i), pivot, 0);
+				if (tuples.get(i).getValue(slots[slotIndex])
 						.compareTo(pivot.getValue(slots[slotIndex])) < 0) {
 					i = i + 1;
 				} else {
-					p.setTuple(j, p.retrieveTuple(i));
-					p.setTuple(i, p.retrieveTuple(j - 1));
+					tuples.set(j, tuples.get(i));
+					tuples.set(i, tuples.get(j - 1));
 					j = j - 1;
 				}
 			}
-			p.setTuple(j, pivot);
-			quickAux(p, start, j - 1);
-			quickAux(p, j + 1, end);
+			tuples.set(j, pivot);
+			quickAux(tuples, start, j - 1);
+			quickAux(tuples, j + 1, end);
 		}
 	}
 
