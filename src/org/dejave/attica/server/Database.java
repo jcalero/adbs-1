@@ -304,12 +304,15 @@ public class Database {
                 
                 String input = sb.toString();
                 done = input.trim().equals("exit");
+                long timer = System.currentTimeMillis();
                 if (! done) {
                     Sink sink = db.runStatement(input);
-
+                    
                     for (Tuple tuple : sink.tuples())
                         System.out.println(tuple.toStringFormatted());
 
+                    long curTime = System.currentTimeMillis();
+                    System.out.println(">>> Time to run query: " + (curTime - timer)*0.001 + "s");
                     System.out.print(PROMPT);
                 }
             }

@@ -11,6 +11,7 @@
 package org.dejave.attica.engine.operators;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -43,7 +44,7 @@ public class ExternalSort extends UnaryOperator {
     private ArrayList<String> tempFiles;
     
     /** The temporary IO Managers used for the intermediate steps */
-    private ArrayList<RelationIOManager> tempIOManagers;
+    private ArrayDeque<RelationIOManager> tempIOManagers;
 	
     /** The manager that undertakes output relation I/O. */
     private RelationIOManager outputMan;
@@ -168,7 +169,7 @@ public class ExternalSort extends UnaryOperator {
             // temporary file.
             /////
             tempFiles = new ArrayList<String>();
-            tempIOManagers = new ArrayList<RelationIOManager>();
+            tempIOManagers = new ArrayDeque<RelationIOManager>();
             ArrayList<Tuple> bufferedTuples = new ArrayList<Tuple>();
             int pageCount = 0;
             for (Page p : inputIOMan.pages()) {
@@ -271,10 +272,8 @@ public class ExternalSort extends UnaryOperator {
     	// Simply copies the input to the output
     	// Remove when proper merge is implemented
 //        for (RelationIOManager man : tempIOManagers) {
-//        	for (Page p : man.pages()) {
-//        		for (Tuple t : p) {
-//        			outputMan.insertTuple(t);
-//        		}
+//        	for (Tuple t : man.tuples()) {
+//    			outputMan.insertTuple(t);
 //        	}
 //        }
 //        tempIOManagers.clear();
@@ -284,17 +283,20 @@ public class ExternalSort extends UnaryOperator {
         // 
         /////
     	RelationIOManager tempRel = null;
-        while (tempIOManagers.size() > mergeCounter) {
+        while (tempIOManagers.size() > 1) {
 	        if (tempIOManagers.size() < buffers - 1) {
 	        	tempRel = mergeRun(tempIOManagers.size());
 	        } else {
 	        	tempRel = mergeRun(buffers - 1);
 	        }
+	        
+	        tempIOManagers.addLast( tempRel );
         }
-        if (tempRel != null) {
-	        for (Tuple t : tempRel.tuples()) {
-	        	outputMan.insertTuple(t);
-	        }
+        
+        System.out.println(">> Number of final merged files: " + tempIOManagers.size());
+        
+        for (Tuple t : tempIOManagers.getLast().tuples()) {
+        	outputMan.insertTuple(t);
         }
     }
     
@@ -304,15 +306,11 @@ public class ExternalSort extends UnaryOperator {
     	// of the lists being merged
     	ArrayList<Iterator<Tuple>> iterators = new ArrayList<Iterator<Tuple>>();
     	ArrayList<Tuple> cachedTuples = new ArrayList<Tuple>();
-    	int pageCount = 0;
     	
     	for (int i = 0; i < fileCount; i++) {
-    		for( Page p : tempIOManagers.get(i).pages() ) {
-	    		Iterator<Tuple> iter = p.iterator();
-	    		iterators.add(iter);
-	    		cachedTuples.add(iter.next());
-	    		pageCount ++;
-    		}
+    		Iterator<Tuple> iter = tempIOManagers.pollFirst().tuples().iterator();
+    		iterators.add(iter);
+    		cachedTuples.add(iter.next());
     	}
     	
     	Tuple minTuple = null;
@@ -329,8 +327,8 @@ public class ExternalSort extends UnaryOperator {
     		// Find the minimum value of the next tuples in
     		// each file being checked.
     		int endCount = 0;
-	    	for (int i = 0; i < pageCount; i++) {
-	    		if (iterators.get(i).hasNext()) {
+	    	for (int i = 0; i < fileCount; i++) {
+	    		if ( cachedTuples.get( i ) != null ) {
 	    			Tuple currentTuple = cachedTuples.get(i);
 		    		if (minTuple == null) {
 		    			minTuple = currentTuple;
@@ -348,12 +346,15 @@ public class ExternalSort extends UnaryOperator {
 	    		}
 	    	}
 	    	
-	    	done = endCount == pageCount;
+	    	done = endCount == fileCount;
 	    	
 	    	if (!done) {
 		    	// Add the minumum value to the output manager.
 		    	outMan.insertTuple(minTuple);
-		    	cachedTuples.set( minIndex, iterators.get( minIndex ).next() );
+		    	if( iterators.get( minIndex ).hasNext() )
+		    		cachedTuples.set( minIndex, iterators.get( minIndex ).next() );
+		    	else
+		    		cachedTuples.set( minIndex, null );
 		    	minTuple = null;
 	    	}
     	}
