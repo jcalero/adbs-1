@@ -300,8 +300,7 @@ public class Database {
                     
                     for (Tuple tuple : sink.tuples())
                         System.out.println(tuple.toStringFormatted());
-
-                    long curTime = System.currentTimeMillis();
+                    
                     System.out.print(PROMPT);
                 }
             }
