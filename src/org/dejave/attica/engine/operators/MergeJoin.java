@@ -108,6 +108,7 @@ public class MergeJoin extends NestedLoopsJoin {
         //
         ////////////////////////////////////////////
         outputFile = FileUtil.createTempFileName();
+        getStorageManager().createFile(outputFile);
     } // initTempFiles()
 
     
@@ -139,9 +140,9 @@ public class MergeJoin extends NestedLoopsJoin {
             // have not already instantiated the manager -- it all
             // depends on how you have implemented the operator
             //
-            //outputMan = new RelationIOManager(getStorageManager(), 
-            //                                  getOutputRelation(),
-            //                                  outputFile);
+            outputMan = new RelationIOManager(getStorageManager(), 
+                                              getOutputRelation(),
+                                              outputFile);
 
             // open the iterator over the output
             outputTuples = outputMan.tuples().iterator();
@@ -166,7 +167,7 @@ public class MergeJoin extends NestedLoopsJoin {
      * @throws EngineException whenever the operator cannot clean up
      * after itself.
      */
-    /*
+    
     @Override
     protected void cleanup() throws EngineException {
         try {
@@ -185,7 +186,6 @@ public class MergeJoin extends NestedLoopsJoin {
             throw ee;
         }
     } // cleanup()
-    */
 
     /**
      * Inner method to propagate a tuple.
