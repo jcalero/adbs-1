@@ -1,6 +1,7 @@
 package org.dejave.attica.engine.operators;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 
@@ -112,58 +113,6 @@ public class TESTCLASS {
 	}
 	
 	@SuppressWarnings("unchecked")
-	public static ArrayList<Tuple[]> mergePagesOld(ArrayList<Page> pages) {
-		
-		ArrayList<Tuple[]> output = new ArrayList<Tuple[]>();
-		
-		// Indices for the relations and groups
-		int ri  = 0;
-		int si  = 0;
-		int gsi = 0;
-		
-		// The two relations
-		Page R = pages.get(0);
-		Page S = pages.get(1);
-		
-		// The initial tuples
-		Tuple r  = R.retrieveTuple(ri);
-		Tuple s  = S.retrieveTuple(si);
-		Tuple gs = S.retrieveTuple(gsi);
-		
-		// The join attribute index
-		int a = slots[0];
-		int b = slots[0];
-		
-		while (!(r instanceof EndOfStreamTuple) && !(s instanceof EndOfStreamTuple)) {
-			while (!(r instanceof EndOfStreamTuple) && r.getValue(a).compareTo(gs.getValue(b)) < 0) {
-				ri++;
-				r = ri >= R.getNumberOfTuples() ? new EndOfStreamTuple() : R.retrieveTuple(ri);
-			} 
-			while (!(r instanceof EndOfStreamTuple) && !(gs instanceof EndOfStreamTuple) && r.getValue(a).compareTo(gs.getValue(b)) > 0) {
-				gsi++;
-				gs = gsi >= S.getNumberOfTuples() ? new EndOfStreamTuple() : S.retrieveTuple(gsi);
-			} 
-			while (!(r instanceof EndOfStreamTuple) && !(gs instanceof EndOfStreamTuple) && r.getValue(a).equals(gs.getValue(b))){
-				si = gsi;
-				s = si >= S.getNumberOfTuples() ? new EndOfStreamTuple() : S.retrieveTuple(si);
-				while (!(s instanceof EndOfStreamTuple) && r.getValue(a).equals(s.getValue(b))) {
-					output.add(joinTuples(r, s));
-					si++;
-					s = si >= S.getNumberOfTuples() ? new EndOfStreamTuple() : S.retrieveTuple(si);
-				}
-				ri++;
-				r = ri >= R.getNumberOfTuples() ? new EndOfStreamTuple() : R.retrieveTuple(ri);
-			}
-			if (!(gs instanceof EndOfStreamTuple)) {
-				gsi = si;
-				gs = gsi >= S.getNumberOfTuples() ? new EndOfStreamTuple() : S.retrieveTuple(gsi);
-			}
-		}
-		
-		return output;
-	}
-
-	@SuppressWarnings("unchecked")
 	public static ArrayList<Tuple[]> mergePages(ArrayList<Page> pages) {
 		
 		ArrayList<Tuple[]> output = new ArrayList<Tuple[]>();
@@ -234,12 +183,12 @@ public class TESTCLASS {
 	}
 
 	public static void main(String[] args) {
-//		Page p1 = createPage(5, 1, 0, 4);
-//		Page p2 = createPage(5, 1, 0, 4);
+		Page p1 = createPage(5, 1, 0, 4);
+		Page p2 = createPage(5, 1, 0, 4);
 		int[] a1 = {1, 2, 3, 2, 1};
 		int[] a2 = {1, 2, 3, 2, 1};
-		Page p1 = createPageFromArray(a1);
-		Page p2 = createPageFromArray(a2);
+//		Page p1 = createPageFromArray(a1);
+//		Page p2 = createPageFromArray(a2);
 		ArrayList<Page> ap = new ArrayList<Page>();
 		ap.add(p1);
 		ap.add(p2);
@@ -263,6 +212,7 @@ public class TESTCLASS {
 		// Print output
 		System.out.println("------------------------------------------------");
 		printTupleArr(out);
+		System.out.println("(" + out.size() + ")");
 	}
 	
 	

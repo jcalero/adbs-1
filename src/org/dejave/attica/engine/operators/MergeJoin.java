@@ -10,25 +10,20 @@
  */
 package org.dejave.attica.engine.operators;
 
-import java.util.List;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
-
-import java.io.IOException;
-
-import org.dejave.attica.model.Relation;
+import java.util.List;
 
 import org.dejave.attica.engine.predicates.Predicate;
 import org.dejave.attica.engine.predicates.PredicateEvaluator;
 import org.dejave.attica.engine.predicates.PredicateTupleInserter;
-
-import org.dejave.attica.storage.IntermediateTupleIdentifier;
+import org.dejave.attica.model.Relation;
+import org.dejave.attica.storage.FileUtil;
 import org.dejave.attica.storage.RelationIOManager;
 import org.dejave.attica.storage.StorageManager;
 import org.dejave.attica.storage.StorageManagerException;
 import org.dejave.attica.storage.Tuple;
-
-import org.dejave.attica.storage.FileUtil;
 
 /**
  * MergeJoin: Implements a merge join. The assumptions are that the
@@ -42,6 +37,10 @@ public class MergeJoin extends NestedLoopsJoin {
 	
     /** The name of the temporary file for the output. */
     private String outputFile;
+    
+    /** The names for the temporary files for the two relations */
+    private String leftFile;
+    private String rightFile;
     
     /** The relation manager used for I/O. */
     private RelationIOManager outputMan;
@@ -107,6 +106,10 @@ public class MergeJoin extends NestedLoopsJoin {
         // make sure you throw the right exception
         //
         ////////////////////////////////////////////
+        leftFile = FileUtil.createTempFileName();
+        getStorageManager().createFile(leftFile);
+        rightFile = FileUtil.createTempFileName();
+        getStorageManager().createFile(rightFile);
         outputFile = FileUtil.createTempFileName();
         getStorageManager().createFile(outputFile);
     } // initTempFiles()
@@ -129,6 +132,39 @@ public class MergeJoin extends NestedLoopsJoin {
             //
             ////////////////////////////////////////////
             
+            // store the left input
+            Relation leftRel = getInputOperator(LEFT).getOutputRelation();
+            RelationIOManager leftMan =
+                new RelationIOManager(getStorageManager(), leftRel, leftFile);
+            boolean done = false;
+            while (! done) {
+                Tuple tuple = getInputOperator(LEFT).getNext();
+                if (tuple != null) {
+                    done = (tuple instanceof EndOfStreamTuple);
+                    if (! done) leftMan.insertTuple(tuple);
+                }
+            }
+            
+            // store the right input
+            Relation rightRel = getInputOperator(RIGHT).getOutputRelation();
+            RelationIOManager rightMan = 
+                new RelationIOManager(getStorageManager(), rightRel, rightFile);
+            done = false;
+            while (! done) {
+                Tuple tuple = getInputOperator(RIGHT).getNext();
+                if (tuple != null) {
+                    done = (tuple instanceof EndOfStreamTuple);
+                    if (! done) rightMan.insertTuple(tuple);
+                }
+            }
+            
+            
+        	Iterator<Tuple> rIt = leftMan.tuples().iterator();
+        	Iterator<Tuple> qIt = rightMan.tuples().iterator();
+        	Iterator<Tuple> r2It = leftMan.tuples().iterator();
+        	Iterator<Tuple> q2It = rightMan.tuples().iterator();
+            
+            
             ////////////////////////////////////////////
             //
             // the output should reside in the output file
@@ -143,6 +179,8 @@ public class MergeJoin extends NestedLoopsJoin {
             outputMan = new RelationIOManager(getStorageManager(), 
                                               getOutputRelation(),
                                               outputFile);
+            
+            mergeJoinRelations(leftMan, rightMan);
 
             // open the iterator over the output
             outputTuples = outputMan.tuples().iterator();
@@ -160,6 +198,61 @@ public class MergeJoin extends NestedLoopsJoin {
         }
     } // setup()
     
+    
+    @SuppressWarnings("unchecked")
+	private void mergeJoinRelations(RelationIOManager leftMan, RelationIOManager rightMan) throws IOException, StorageManagerException {
+//    	int ri = 0;
+//    	int qi = 0;
+//    	int ri2 = 0;
+//    	int qi2 = 0;
+    	
+    	Iterator<Tuple> rIt = leftMan.tuples().iterator();
+    	Iterator<Tuple> qIt = rightMan.tuples().iterator();
+    	Iterator<Tuple> r2It = leftMan.tuples().iterator();
+    	Iterator<Tuple> q2It = rightMan.tuples().iterator();
+    	
+    	Tuple r = rIt.next();
+    	Tuple q = qIt.next();
+    	Tuple r2 = r2It.next();
+    	Tuple q2 = q2It.next();
+    	
+    	while (!(r instanceof EndOfStreamTuple) && !(q instanceof EndOfStreamTuple)) {
+    		if (r.getValue(leftSlot).compareTo(q.getValue(rightSlot)) > 0) {
+    			q = qIt.next();
+    			q2 = q2It.next();
+    		} else if (r.getValue(leftSlot).compareTo(q.getValue(rightSlot)) < 0) {
+    			r = rIt.next();
+    			r2 = r2It.next();
+    		} else {
+    			evalAndInsertTuples(r, q);
+    			
+    			q2 = q2It.next();
+    			while (!(q2 instanceof EndOfStreamTuple) && r.getValue(leftSlot).equals(q2.getValue(rightSlot))) {
+    				evalAndInsertTuples(r, q2);
+    				q2 = q2It.next();
+    			}    			
+    			
+    			r2 = r2It.next();
+    			while (!(r2 instanceof EndOfStreamTuple) && r2.getValue(leftSlot).equals(q.getValue(rightSlot))) {
+    				evalAndInsertTuples(r2, q);
+    				r2 = r2It.next();
+    			}
+    			
+    			r = rIt.next();
+    			q = qIt.next();
+    		}
+    	}
+    }
+    
+    private void evalAndInsertTuples(Tuple leftTuple, Tuple rightTuple) throws StorageManagerException {
+    	PredicateTupleInserter.insertTuples(leftTuple, rightTuple, getPredicate());
+    	boolean value = PredicateEvaluator.evaluate(getPredicate());
+    	if (value) {
+    	    // the predicate is true -- store the new tuple
+    	    Tuple newTuple = combineTuples(leftTuple, rightTuple);
+    	    outputMan.insertTuple(newTuple);
+    	}
+    }
     
     /**
      * Cleans up after the join.
