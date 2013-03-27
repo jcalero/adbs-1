@@ -183,12 +183,12 @@ public class TESTCLASS {
 	}
 
 	public static void main(String[] args) {
-		Page p1 = createPage(5, 1, 0, 4);
-		Page p2 = createPage(5, 1, 0, 4);
-		int[] a1 = {1, 2, 3, 2, 1};
-		int[] a2 = {1, 2, 3, 2, 1};
-//		Page p1 = createPageFromArray(a1);
-//		Page p2 = createPageFromArray(a2);
+//		Page p1 = createPage(5, 1, 0, 4);
+//		Page p2 = createPage(5, 1, 0, 4);
+		int[] a1 = {0, 0, 1, 2, 3};
+		int[] a2 = {1, 3, 5, 7, 9};
+		Page p1 = createPageFromArray(a1);
+		Page p2 = createPageFromArray(a2);
 		ArrayList<Page> ap = new ArrayList<Page>();
 		ap.add(p1);
 		ap.add(p2);

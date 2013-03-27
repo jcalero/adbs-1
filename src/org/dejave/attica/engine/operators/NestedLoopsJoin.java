@@ -38,10 +38,10 @@ import org.dejave.attica.storage.FileUtil;
 public class NestedLoopsJoin extends PhysicalJoin {
 
     /** The name of the temporary file for the left input. */
-    private String leftFile;
+    protected String leftFile;
     
     /** The name of the temporary file for the right input. */
-    private String rightFile;
+    protected String rightFile;
 	
     /** The name of the temporary file for the output. */
     private String outputFile;

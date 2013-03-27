@@ -276,10 +276,6 @@ public class ExternalSort extends UnaryOperator {
         this.sm = sm;
         this.slots = slots;
         this.buffers = buffers;
-        System.out.print("Slots: ");
-	for (int i = 0 ; i < slots.length - 1; i++)
-	  System.out.print(slots[i] + ", ");
-	System.out.println(slots[slots.length - 1]);
     } // ExternalSort()
     
     /**

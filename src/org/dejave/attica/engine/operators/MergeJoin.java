@@ -38,10 +38,6 @@ public class MergeJoin extends NestedLoopsJoin {
     /** The name of the temporary file for the output. */
     private String outputFile;
     
-    /** The names for the temporary files for the two relations */
-    private String leftFile;
-    private String rightFile;
-    
     /** The relation manager used for I/O. */
     private RelationIOManager outputMan;
     
@@ -106,10 +102,11 @@ public class MergeJoin extends NestedLoopsJoin {
         // make sure you throw the right exception
         //
         ////////////////////////////////////////////
-        leftFile = FileUtil.createTempFileName();
-        getStorageManager().createFile(leftFile);
-        rightFile = FileUtil.createTempFileName();
-        getStorageManager().createFile(rightFile);
+    	
+    	///////////
+    	// NOTE: Input files "leftFile" and "rightFile" are inherited by
+    	// NestedLoopsJoin and are created there.
+    	///////////
         outputFile = FileUtil.createTempFileName();
         getStorageManager().createFile(outputFile);
     } // initTempFiles()
@@ -156,30 +153,18 @@ public class MergeJoin extends NestedLoopsJoin {
                     done = (tuple instanceof EndOfStreamTuple);
                     if (! done) rightMan.insertTuple(tuple);
                 }
-            }
-            
-            
-        	Iterator<Tuple> rIt = leftMan.tuples().iterator();
-        	Iterator<Tuple> qIt = rightMan.tuples().iterator();
-        	Iterator<Tuple> r2It = leftMan.tuples().iterator();
-        	Iterator<Tuple> q2It = rightMan.tuples().iterator();
-            
+            }        	
             
             ////////////////////////////////////////////
             //
             // the output should reside in the output file
             //
             ////////////////////////////////////////////
-
-            //
-            // you may need to uncomment the following lines if you
-            // have not already instantiated the manager -- it all
-            // depends on how you have implemented the operator
-            //
             outputMan = new RelationIOManager(getStorageManager(), 
                                               getOutputRelation(),
                                               outputFile);
             
+            // Do the joining
             mergeJoinRelations(leftMan, rightMan);
 
             // open the iterator over the output
@@ -199,51 +184,81 @@ public class MergeJoin extends NestedLoopsJoin {
     } // setup()
     
     
+    /**
+     * Joins the two relations over the attributes specified in the operator.
+     * Stores the output in outputMan.
+     * @param leftMan - The RelationIOManager for the left relation.
+     * @param rightMan - The RelationIOManager for the right relation.
+     * @throws IOException
+     * @throws StorageManagerException
+     */
     @SuppressWarnings("unchecked")
 	private void mergeJoinRelations(RelationIOManager leftMan, RelationIOManager rightMan) throws IOException, StorageManagerException {
-//    	int ri = 0;
-//    	int qi = 0;
-//    	int ri2 = 0;
-//    	int qi2 = 0;
+    	int leftPos = 0; 
+    	int rightPos = 0;
     	
-    	Iterator<Tuple> rIt = leftMan.tuples().iterator();
-    	Iterator<Tuple> qIt = rightMan.tuples().iterator();
-    	Iterator<Tuple> r2It = leftMan.tuples().iterator();
-    	Iterator<Tuple> q2It = rightMan.tuples().iterator();
+    	Iterator<Tuple> leftIterator = leftMan.tuples().iterator();
+    	Iterator<Tuple> rightIterator = rightMan.tuples().iterator();
     	
-    	Tuple r = rIt.next();
-    	Tuple q = qIt.next();
-    	Tuple r2 = r2It.next();
-    	Tuple q2 = q2It.next();
+    	Tuple l = leftIterator.next(); leftPos++;
+    	Tuple r = rightIterator.next(); rightPos++;
     	
-    	while (!(r instanceof EndOfStreamTuple) && !(q instanceof EndOfStreamTuple)) {
-    		if (r.getValue(leftSlot).compareTo(q.getValue(rightSlot)) > 0) {
-    			q = qIt.next();
-    			q2 = q2It.next();
-    		} else if (r.getValue(leftSlot).compareTo(q.getValue(rightSlot)) < 0) {
-    			r = rIt.next();
-    			r2 = r2It.next();
+    	// Small check for type consistency between comparisons.
+    	// E.g. If you're trying to compare a relation of strings with 
+    	// a relation of integers it's not going to merge anything.
+    	if (!canCompare(l, r)) { return; }
+    	
+    	while (!(l instanceof EndOfStreamTuple) && !(r instanceof EndOfStreamTuple)) {
+    		if (l.getValue(leftSlot).compareTo(r.getValue(rightSlot)) > 0) {
+    			r = rightIterator.hasNext() ? rightIterator.next() : new EndOfStreamTuple(); rightPos++;
+    		} else if (l.getValue(leftSlot).compareTo(r.getValue(rightSlot)) < 0) {
+    			l = leftIterator.hasNext() ? leftIterator.next() : new EndOfStreamTuple(); leftPos++;
     		} else {
-    			evalAndInsertTuples(r, q);
+    			evalAndInsertTuples(l, r);
     			
-    			q2 = q2It.next();
-    			while (!(q2 instanceof EndOfStreamTuple) && r.getValue(leftSlot).equals(q2.getValue(rightSlot))) {
-    				evalAndInsertTuples(r, q2);
-    				q2 = q2It.next();
+    			Iterator<Tuple> rightTempIter = jumpToIteratorPosition(rightMan, rightPos);
+    			Tuple rTemp = rightTempIter.hasNext() ? rightTempIter.next() : new EndOfStreamTuple();
+    			while (!(rTemp instanceof EndOfStreamTuple) && l.getValue(leftSlot).equals(rTemp.getValue(rightSlot))) {
+    				evalAndInsertTuples(l, rTemp);
+    				rTemp = rightTempIter.hasNext() ? rightTempIter.next() : new EndOfStreamTuple();
     			}    			
     			
-    			r2 = r2It.next();
-    			while (!(r2 instanceof EndOfStreamTuple) && r2.getValue(leftSlot).equals(q.getValue(rightSlot))) {
-    				evalAndInsertTuples(r2, q);
-    				r2 = r2It.next();
+    			Iterator<Tuple> leftTempIter = jumpToIteratorPosition(leftMan, leftPos);
+    			Tuple lTemp = leftTempIter.hasNext() ? leftTempIter.next() : new EndOfStreamTuple();
+    			while (!(lTemp instanceof EndOfStreamTuple) && lTemp.getValue(leftSlot).equals(r.getValue(rightSlot))) {
+    				evalAndInsertTuples(lTemp, r);
+    				lTemp = leftTempIter.hasNext() ? leftTempIter.next() : new EndOfStreamTuple();;
     			}
     			
-    			r = rIt.next();
-    			q = qIt.next();
+    			l = leftIterator.hasNext() ? leftIterator.next() : new EndOfStreamTuple(); leftPos++;
+    			r = rightIterator.hasNext() ? rightIterator.next() : new EndOfStreamTuple(); rightPos++;
     		}
     	}
     }
     
+    /**
+     * Checks whether the Comparable values in the tuples can be compared.
+     * @param left - The left tuple
+     * @param right - The right tuple
+     * @return True if the tuples are comparable, false otherwise.
+     */
+    @SuppressWarnings("unchecked")
+	private boolean canCompare(Tuple left, Tuple right) {
+    	try {
+    		left.getValue(leftSlot).compareTo(right.getValue(rightSlot));
+    	} catch (ClassCastException e) {
+			return false;
+		}
+    	return true;
+    }
+    
+    /**
+     * Evaluates the predicate over the tuples. If the predicate evaluation succeeds
+     * it combines the two tuples and adds them to the output relation.
+     * @param leftTuple - The left tuple
+     * @param rightTuple - The right tuple
+     * @throws StorageManagerException
+     */
     private void evalAndInsertTuples(Tuple leftTuple, Tuple rightTuple) throws StorageManagerException {
     	PredicateTupleInserter.insertTuples(leftTuple, rightTuple, getPredicate());
     	boolean value = PredicateEvaluator.evaluate(getPredicate());
@@ -252,6 +267,25 @@ public class MergeJoin extends NestedLoopsJoin {
     	    Tuple newTuple = combineTuples(leftTuple, rightTuple);
     	    outputMan.insertTuple(newTuple);
     	}
+    }
+    
+    /**
+     * "Hack" method to start a new iterator at a certain position. 
+     * This will create a new tuple iterator over the relation specified at
+     * the specified position. Equivalent to calling next() position number
+     * of times on a new iterator over the relation. 
+     * @param relMan - The RelationIOManager to create the iterator over.
+     * @param position - The position to start the iterator at.
+     * @return - A new tuple iterator over relMan at position position.
+     * @throws IOException
+     * @throws StorageManagerException
+     */
+    private Iterator<Tuple> jumpToIteratorPosition(RelationIOManager relMan, int position) throws IOException, StorageManagerException {
+    	Iterator<Tuple> iterator = relMan.tuples().iterator();
+    	for(int i = 0; i < position; i++) {
+    		iterator.next();
+    	}
+		return iterator;
     }
     
     /**
@@ -269,7 +303,8 @@ public class MergeJoin extends NestedLoopsJoin {
             // make sure you delete any temporary files
             //
             ////////////////////////////////////////////
-            
+            getStorageManager().deleteFile(leftFile);
+            getStorageManager().deleteFile(rightFile);
             getStorageManager().deleteFile(outputFile);
         }
         catch (StorageManagerException sme) {
